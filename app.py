@@ -1,5 +1,6 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 
 st.set_page_config(page_title="Stock RSI Dashboard", layout="wide")
 st.title("📈 Market Intelligence Dashboard")
