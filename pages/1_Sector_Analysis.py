@@ -6,12 +6,11 @@ import plotly.express as px
 st.set_page_config(page_title="Sector Analysis", layout="wide")
 
 st.title("🏭 Sector & Industry Deep-Dive")
-st.markdown("---")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def clean_percent(val):
-    """Cleans percentage strings and commas"""
+def clean_num(val):
+    """Safely converts strings with % or commas to numbers"""
     if pd.isna(val) or val == "": return 0.0
     try:
         return float(str(val).replace(',', '').replace('%', '').strip())
@@ -19,64 +18,69 @@ def clean_percent(val):
         return 0.0
 
 try:
-    # 1. Read the sheet
-    df = conn.read(worksheet="Sheet1", ttl=10)
+    # 1. Read the whole sheet
+    df = conn.read(worksheet="Sheet1", ttl=0)
 
-    # 2. Extract Industry Table (Column L to P -> Index 11 to 16)
-    # This table usually contains Industry, No. of Stocks, Avg RSI, etc.
-    ind_df = df.iloc[:, 11:16].copy()
-    
-    # 3. Find the header row (Search for 'Industry' in Column L)
-    found_idx = -1
-    for i in range(min(len(ind_df), 10)):
-        if "Industry" in str(ind_df.iloc[i, 0]):
-            found_idx = i
-            break
-            
-    if found_idx != -1:
-        ind_df.columns = ind_df.iloc[found_idx]
-        ind_df = ind_df.iloc[found_idx+1:].reset_index(drop=True)
-    else:
-        ind_df.columns = ["Industry", "Stocks", "Avg_RSI", "RSI_60_Plus", "Avg_Vol_Mult"]
+    # 2. DYNAMIC SEARCH: Find the 'Industry' table headers
+    # This looks for the word "Industry" (the header of your 2nd table)
+    start_row, start_col = -1, -1
+    for r in range(min(len(df), 15)): # Scan top 15 rows
+        for c in range(len(df.columns)):
+            if str(df.iloc[r, c]).strip() == "Industry":
+                start_row, start_col = r, c
+                break
+        if start_row != -1: break
 
-    # 4. Clean Data
-    ind_df = ind_df.dropna(subset=["Industry"])
-    for col in ["Avg RSI", "Avg Volume", "Avg_RSI", "RSI>=60"]:
-        if col in ind_df.columns:
-            ind_df[col] = ind_df[col].apply(clean_percent)
+    if start_row != -1:
+        # 3. Slice the table (Assuming it has 5 columns: Industry, Stocks, Avg RSI, RSI>=60, Avg Vol)
+        ind_df = df.iloc[start_row:, start_col : start_col + 5].copy()
+        
+        # 4. Set Headers
+        ind_df.columns = ind_df.iloc[0] # Use the 'Industry' row as header
+        ind_df = ind_df.iloc[1:].reset_index(drop=True) # Remove header row from data
+        
+        # 5. Drop empty rows
+        ind_df = ind_df.dropna(subset=[ind_df.columns[0]])
+        ind_df = ind_df[ind_df.iloc[:, 0] != ""]
 
-    # --- INTERACTIVE UI ---
-    
-    # Chart: Industry RSI Comparison
-    st.subheader("Industry Strength Heatmap")
-    fig = px.bar(
-        ind_df.sort_values("Avg RSI", ascending=False), 
-        x="Industry", 
-        y="Avg RSI", 
-        color="Avg RSI",
-        color_continuous_scale="RdYlGn",
-        text_auto='.1f'
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        # 6. Clean Numeric Columns (Avg RSI, RSI>=60, etc.)
+        # We clean every column except the first one (Industry Name)
+        for col in ind_df.columns[1:]:
+            ind_df[col] = ind_df[col].apply(clean_num)
 
-    # Layout: Table and Metrics
-    col1, col2 = st.columns([2, 1])
+        # --- UI DISPLAY ---
+        
+        # Metric Row
+        top_sector = ind_df.sort_values(ind_df.columns[2], ascending=False).iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Industries", len(ind_df))
+        c2.metric("Top Industry", top_sector.iloc[0])
+        c3.metric("Highest Avg RSI", f"{top_sector.iloc[2]:.2f}")
 
-    with col1:
-        st.subheader("Industry Summary Table")
+        # Plotly Chart
+        st.subheader("Industry Strength (Avg RSI)")
+        fig = px.bar(
+            ind_df.sort_values(ind_df.columns[2], ascending=True), 
+            x=ind_df.columns[2], 
+            y=ind_df.columns[0], 
+            orientation='h',
+            color=ind_df.columns[2],
+            color_continuous_scale="RdYlGn",
+            text_auto='.1f'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Data Table
+        st.subheader("Detailed Industry Metrics")
         st.dataframe(
-            ind_df.style.background_gradient(subset=['Avg RSI'], cmap='RdYlGn')
+            ind_df.style.background_gradient(subset=[ind_df.columns[2]], cmap='RdYlGn')
             .format(precision=2),
             use_container_width=True
         )
 
-    with col2:
-        st.subheader("Top Performing Sector")
-        if not ind_df.empty:
-            top_sector = ind_df.sort_values("Avg RSI", ascending=False).iloc[0]
-            st.metric(label=top_sector["Industry"], value=f"{top_sector['Avg RSI']:.1f} RSI")
-            st.write(f"This sector has **{top_sector.get('No. of Stocks', 'N/A')}** active stocks.")
+    else:
+        st.error("Could not find the 'Industry' table in your Google Sheet.")
+        st.info("Ensure the word 'Industry' is written exactly in your sheet (likely Column L).")
 
 except Exception as e:
-    st.error(f"Error loading Sector Analysis: {e}")
-    st.info("Check if your Industry table starts at Column L in Google Sheets.")
+    st.error(f"Logic Error: {e}")
