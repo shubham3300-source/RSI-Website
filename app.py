@@ -2,9 +2,9 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-st.set_page_config(page_title="RSI Alpha Terminal", layout="wide")
+st.set_page_config(page_title="Sector Map Terminal", layout="wide")
 
-st.title("📈 RSI Sector Dashboard")
+st.title("📈 Sector Map Dashboard")
 
 # Create connection
 conn = st.connection("gsheets", type=GSheetsConnection)
