@@ -15,7 +15,7 @@ try:
 
     # 2. Extract columns from S onwards (Index 18 to 23)
     # We use a try-except here specifically for the slicing
-    rev_data = df.iloc[:, 18:24].copy()
+    rev_data = df.iloc[:, 17:23].copy()
 
     # 3. Clean the data
     # Remove rows that are completely empty
