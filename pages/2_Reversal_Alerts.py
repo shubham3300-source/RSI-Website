@@ -1,33 +1,30 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 
 st.set_page_config(layout="wide")
 st.title("🔄 Trend Reversal Signals")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
-full_df = conn.read(worksheet="Sheet1", ttl=60)
 
-# Extract Reversal Table (Columns S to W / index 18 to 23)
-rev_df = full_df.iloc[:, 18:23].dropna(how="all")
-rev_df.columns = ["Symbol", "Price", "Volume", "RSI", "Vol_Mult"]
+try:
+    # Read sheet
+    df = conn.read(worksheet="Sheet1", ttl=10)
 
-if not rev_df.empty:
-    st.success(f"Found {len(rev_df)} potential reversal candidates")
+    # In your sheet, the Filtered Stocks table starts at Column S (Index 18)
+    # and ends at Column X (Index 23)
+    rev_df = df.iloc[:, 18:24].copy()
     
-    # Grid layout for reversal stocks
-    for i in range(0, len(rev_df), 3):
-        cols = st.columns(3)
-        for j, col in enumerate(cols):
-            if i + j < len(rev_df):
-                row = rev_df.iloc[i + j]
-                with col:
-                    st.markdown(f"""
-                    <div style="border:1px solid #ddd; padding:20px; border-radius:10px">
-                        <h3>{row['Symbol']}</h3>
-                        <p>Price: <b>{row['Price']}</b></p>
-                        <p>RSI: <span style="color:blue">{row['RSI']}</span></p>
-                        <p>Volume Mult: <b>{row['Vol_Mult']}x</b></p>
-                    </div>
-                    """, unsafe_allow_html=True)
-else:
-    st.info("No reversal signals detected in the current scan.")
+    # We find the row where the headers actually start
+    # Based on your data, it says "Symbol" in the 1st column of this slice
+    rev_df.columns = ["Symbol", "Price", "Volume", "RSI", "Vol_Mult", "Industry"]
+    
+    # Remove empty rows and the header row itself
+    rev_df = rev_df.dropna(subset=["Symbol"])
+    rev_df = rev_df[rev_df["Symbol"] != "Symbol"]
+
+    st.write("### Filtered Reversal Stocks")
+    st.table(rev_df)
+
+except Exception as e:
+    st.error(f"Could not find Reversal Table: {e}")
