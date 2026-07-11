@@ -5,75 +5,61 @@ import pandas as pd
 st.set_page_config(page_title="Reversal Signals", layout="wide")
 
 st.title("🔄 Potential Reversal Signals")
-st.info("Data source: Google Sheet (Range R2:W)")
 
-# --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def clean_val(val):
-    """Cleans commas and percentage signs from strings and converts to float"""
-    if pd.isna(val): return 0.0
+def clean_num(val):
+    if pd.isna(val) or val == "": return 0.0
     try:
-        # Remove commas, spaces, and % signs
-        clean = str(val).replace(',', '').replace('%', '').strip()
-        return float(clean)
+        return float(str(val).replace(',', '').replace('%', '').strip())
     except:
         return 0.0
 
 try:
     # 1. Read the sheet
-    # Using ttl=0 for testing to ensure it doesn't use old cache
     df = conn.read(worksheet="Sheet1", ttl=0)
 
-    # 2. Slice R:W (Index 17 to 23)
-    # Since Symbol is at R2, we take everything from that row downwards
-    # Row 1 in Sheet is index 0 in Python. So Row 2 (Header) is Index 0 or 1.
-    # To be safe, we hunt for 'Symbol' in Column R
-    rev_df = df.iloc[:, 17:23].copy()
-    
-    # 3. Find the header row where 'Symbol' exists
-    # We look through the first 5 rows to find the word 'Symbol'
-    found_idx = -1
-    for i in range(min(len(rev_df), 5)):
-        if "Symbol" in str(rev_df.iloc[i, 0]):
-            found_idx = i
-            break
-    
-    if found_idx != -1:
-        # Set the found row as header
-        rev_df.columns = rev_df.iloc[found_idx]
-        # Keep everything below the header
-        rev_df = rev_df.iloc[found_idx + 1:].reset_index(drop=True)
-    else:
-        # Fallback: manually name them if 'Symbol' isn't found exactly
-        rev_df.columns = ["Symbol", "Price", "Volume", "RSI", "Volume Multiple", "Industry"]
+    # 2. Search for the 'Symbol' cell dynamically anywhere in the top 10 rows
+    # This prevents the '3 vs 6' column mismatch
+    start_row, start_col = -1, -1
+    for r in range(min(len(df), 10)):
+        for c in range(len(df.columns)):
+            if str(df.iloc[r, c]).strip() == "Symbol":
+                start_row, start_col = r, c
+                break
+        if start_row != -1: break
 
-    # 4. Filter empty rows
-    rev_df = rev_df.dropna(subset=["Symbol"])
-    rev_df = rev_df[rev_df["Symbol"] != ""]
-
-    # 5. CRITICAL: Clean numeric columns so they don't crash the table
-    # We clean RSI and Volume Multiple for the colors
-    if "RSI" in rev_df.columns:
-        rev_df["RSI"] = rev_df["RSI"].apply(clean_val)
-    if "Volume Multiple" in rev_df.columns:
-        rev_df["Volume Multiple"] = rev_df["Volume Multiple"].apply(clean_val)
-
-    # 6. Display Table
-    if not rev_df.empty:
-        st.success(f"Found {len(rev_df)} stocks in the Reversal list.")
+    if start_row != -1:
+        # 3. Slice data starting from where 'Symbol' was found
+        # We take 6 columns from the start_col
+        rev_df = df.iloc[start_row:, start_col : start_col + 6].copy()
         
-        # Applying professional styling
+        # 4. Set headers correctly based on the number of columns actually found
+        new_headers = rev_df.iloc[0].tolist()
+        rev_df.columns = new_headers
+        rev_df = rev_df.iloc[1:].reset_index(drop=True)
+
+        # 5. Filter out empty Symbol rows
+        rev_df = rev_df[rev_df.iloc[:, 0].notna()]
+        
+        # 6. Clean numeric columns for styling
+        # We look for RSI and Volume Multiple by name or position
+        for col in rev_df.columns:
+            if "RSI" in str(col) or "Volume" in str(col) or "Price" in str(col):
+                rev_df[col] = rev_df[col].apply(clean_num)
+
+        st.success(f"Loaded {len(rev_df)} stocks starting from column index {start_col}")
+        
+        # 7. Display
         st.dataframe(
-            rev_df.style.background_gradient(subset=['RSI'], cmap='RdYlGn_r')
-            .background_gradient(subset=['Volume Multiple'], cmap='Blues')
+            rev_df.style.background_gradient(subset=[rev_df.columns[3]], cmap='RdYlGn_r') # RSI is usually 4th col
             .format(precision=2),
-            use_container_width=True,
-            height=600
+            use_container_width=True
         )
     else:
-        st.warning("Reversal list is currently empty in the Google Sheet.")
+        st.error("Could not find the 'Symbol' header in your Google Sheet.")
+        st.info("Make sure the word 'Symbol' is typed exactly in your Reversal table.")
 
 except Exception as e:
     st.error(f"Logic Error: {e}")
-    st.write("Please check if the tab name is 'Sheet1' and Column R contains 'Symbol'.")
+    st.info("Check if your worksheet name is 'Sheet1'.")
